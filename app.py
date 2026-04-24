@@ -4,8 +4,7 @@ import os
 from streamlit_mic_recorder import mic_recorder
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="TOMÁS - MUSEU", layout="wide", initial_sidebar_state="collapsed")
-
+st.set_page_config(page_title="TOMÁS - MUSEU")
 # Ponemos la clave directamente aquí, en una sola línea, sin fallos.
 client = OpenAI(api_key="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")
 
