@@ -4,20 +4,32 @@ import os
 from streamlit_mic_recorder import mic_recorder
 from difflib import SequenceMatcher
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="TOMÁS - CARCAIXENT", layout="wide", initial_sidebar_state="collapsed")
-client = OpenAI(api_key="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")
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+# En la nube, configuraremos la API KEY en los "Secrets" de la plataforma
+# Si estás en local, la leerá de tus variables de entorno.
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
-# --- DISEÑO ---
+if not api_key:
+    st.error("Por favor, configura la OPENAI_API_KEY en los Secrets.")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="TOMÁS - MUSEU DE CARCAIXENT", layout="wide", initial_sidebar_state="collapsed")
+
+# --- DISEÑO (CSS mejorado para tablets) ---
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-color: #FEF9E7; }
-    h1 { color: #1B4F72 !important; font-family: 'Helvetica', sans-serif; font-weight: bold; text-align: center; margin-top: -30px; }
-    [data-testid="stHorizontalBlock"] { max-width: 800px; margin: 0 auto; }
-    .stButton>button { height: 3.5em !important; border-radius: 5px !important; color: white !important; background-color: #1B4F72 !important; border: 1px solid #154360 !important; width: 100%; }
-    .stButton>button:hover { background-color: #2E86C1 !important; }
-    .stChatMessage { background-color: white !important; border: 1px solid #D4AC0D !important; border-radius: 10px; max-width: 850px; margin: 0 auto 10px auto; }
+    .stButton>button { 
+        height: 4em !important; 
+        font-size: 20px !important; /* Más grande para tablets */
+        border-radius: 12px !important; 
+        background-color: #1B4F72 !important; 
+        color: white !important;
+    }
+    .stChatMessage { border-radius: 15px; border: 1px solid #D4AC0D; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -30,9 +42,8 @@ def reset_memoria():
     st.session_state.historial = []
     st.rerun()
 
-# --- FRONT PANEL ---
-st.markdown("<h1>🏛️ Museu de Carcaixent</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #1B4F72; margin-bottom: 25px;'>Seleccione su idioma / Seleccione el seu idioma / Select language</p>", unsafe_allow_html=True)
+# --- PANEL DE CONTROL ---
+st.markdown("<h1 style='text-align: center; color: #1B4F72;'>🏛️ Museu de Carcaixent</h1>", unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -44,60 +55,52 @@ with col3:
 
 idioma = st.session_state.idioma
 config = {
-    "es": {"inv": "Hola, soy Tomás. ¿En qué puedo ayudarle hoy?", "mic": "🎤 HABLAR", "sys": "Eres Tomás, guía experto de Carcaixent. Eres culto y cercano."},
-    "ca": {"inv": "Hola, sóc Tomás. En què puc ajudar-lo hui?", "mic": "🎤 PARLAR", "sys": "Eres Tomás, guia expert de Carcaixent. Eres culte i proper."},
-    "en": {"inv": "Hello, I am Tomás. How can I help you today?", "mic": "🎤 SPEAK", "sys": "You are Tomás, expert guide of Carcaixent. Cultured and friendly."}
+    "es": {"inv": "Hola, soy Tomás. ¿En qué puedo ayudarle hoy?", "mic": "🎤 PULSE PARA HABLAR", "sys": "Eres Tomás, guía experto de Carcaixent."},
+    "ca": {"inv": "Hola, sóc Tomás. En què puc ajudar-lo hui?", "mic": "🎤 PREME PER A PARLAR", "sys": "Eres Tomás, guia expert de Carcaixent."},
+    "en": {"inv": "Hello, I am Tomás. How can I help you today?", "mic": "🎤 TAP TO SPEAK", "sys": "You are Tomás, expert guide of Carcaixent."}
 }
 
-# Chat
-if not st.session_state.historial:
-    st.chat_message("assistant", avatar="🏛️").write(config[idioma]["inv"])
-else:
-    for chat in st.session_state.historial:
-        st.chat_message(chat["role"], avatar="🏛️" if chat["role"]=="assistant" else "👤").write(chat["content"])
+# Mostrar Chat
+for chat in st.session_state.historial:
+    st.chat_message(chat["role"], avatar="🏛️" if chat["role"]=="assistant" else "👤").write(chat["content"])
 
-# --- MICRO (Cuidado con los espacios aquí abajo) ---
-st.write("###")
-_, col_mic, _ = st.columns([1,1,1])
+# --- MICRO ---
+st.write("---")
+_, col_mic, _ = st.columns([1,2,1])
 with col_mic:
+    # El mic_recorder funciona perfecto en tablets desde el navegador
     audio = mic_recorder(start_prompt=config[idioma]["mic"], stop_prompt="🛑 ESCUCHANDO...", key=f'mic_{st.session_state.audio_key}')
 
 if audio:
-    with st.spinner("..."):
+    with st.spinner("Pensando..."):
+        # 1. Transcripción
         transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio['bytes']), language=idioma)
         user_text = transcript.text.strip()
 
-        # Filtro de eco
-        es_repetido = False
-        if st.session_state.historial:
-            ultima_p = next((m["content"] for m in reversed(st.session_state.historial) if m["role"] == "user"), "")
-            if SequenceMatcher(None, user_text.lower(), ultima_p.lower()).ratio() > 0.8:
-                es_repetido = True
-
-        if user_text and not es_repetido:
+        if user_text:
+            # 2. Cargar conocimiento (Se sube el TXT junto al código)
             contexto = ""
             if os.path.exists("info_museo.txt"):
                 with open("info_museo.txt", "r", encoding="utf-8") as f: contexto = f.read()
 
-            instrucciones = f"{config[idioma]['sys']} \n\n INFO: {contexto}"
-            mensajes = [{"role": "system", "content": instrucciones}]
-            for m in st.session_state.historial[-3:]: mensajes.append(m)
+            mensajes = [{"role": "system", "content": f"{config[idioma]['sys']} \n\n INFO: {contexto}"}]
+            for m in st.session_state.historial[-5:]: mensajes.append(m)
             mensajes.append({"role": "user", "content": user_text})
 
+            # 3. Respuesta y voz
             response = client.chat.completions.create(model="gpt-4o-mini", messages=mensajes)
             respuesta = response.choices[0].message.content
             audio_ev = client.audio.speech.create(model="tts-1", voice="onyx", input=respuesta)
 
+            # Guardar en historial
             st.session_state.historial.append({"role": "user", "content": user_text})
             st.session_state.historial.append({"role": "assistant", "content": respuesta})
             
-            with st.chat_message("assistant", avatar="🏛️"):
-                st.write(respuesta)
-                st.audio(audio_ev.content, format="audio/mpeg", autoplay=True)
-                
-                # Canción (si pides música)
-                if any(x in user_text.lower() for x in ["música", "canción", "botifarra"]):
-                    if os.path.exists("jota_botifarra.mp3"):
-                        st.audio("jota_botifarra.mp3", format="audio/mpeg")
-            
+            # 4. Reproducción y actualización
             st.session_state.audio_key += 1
+            st.rerun()
+
+# Reproducir el último audio si existe
+if st.session_state.historial and st.session_state.historial[-1]["role"] == "assistant":
+    # Aquí es donde el MP3 se reproduce automáticamente en la tablet
+    st.audio(audio_ev.content, format="audio/mpeg", autoplay=True)
