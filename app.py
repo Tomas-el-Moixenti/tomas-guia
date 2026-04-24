@@ -3,66 +3,96 @@ from openai import OpenAI
 import os
 from streamlit_mic_recorder import mic_recorder
 
-# --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="TOMÁS - MUSEU")
-# Ponemos la clave directamente aquí, en una sola línea, sin fallos.
-client = OpenAI(api_key="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")
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
-# --- 2. ESTILO ---
+if not api_key:
+    st.error("Por favor, configura la OPENAI_API_KEY en los Secrets.")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="TOMÁS - MUSEU DE CARCAIXENT", layout="wide")
+
+# --- DISEÑO (CSS) ---
 st.markdown("""
     <style>
     .stApp { background-color: #FEF9E7; }
-    .stButton>button { height: 3em !important; font-size: 20px !important; background-color: #1B4F72 !important; color: white !important; }
+    .stButton>button { 
+        height: 4em !important; 
+        font-size: 20px !important; 
+        border-radius: 12px !important; 
+        background-color: #1B4F72 !important; 
+        color: white !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. ESTADO DE LA APP ---
+# --- INICIALIZACIÓN ---
 if 'idioma' not in st.session_state: st.session_state.idioma = "es"
 if 'historial' not in st.session_state: st.session_state.historial = []
-if 'audio_key' not in st.session_state: st.session_state.audio_key = 0
 
+def reset_memoria():
+    st.session_state.historial = []
+    st.rerun()
+
+# --- INTERFAZ ---
+st.markdown("<h1 style='text-align: center; color: #1B4F72;'>🏛️ Museu de Carcaixent</h1>", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("CASTELLANO"): st.session_state.idioma = "es"; reset_memoria()
+with col2:
+    if st.button("VALENCIÀ"): st.session_state.idioma = "ca"; reset_memoria()
+with col3:
+    if st.button("ENGLISH"): st.session_state.idioma = "en"; reset_memoria()
+
+idioma = st.session_state.idioma
 config = {
-    "es": {"titulo": "🏛️ Museu de Carcaixent", "mic": "🎤 PULSE PARA HABLAR", "sys": "Eres Tomás, guía del museo de Carcaixent."},
-    "ca": {"titulo": "🏛️ Museu de Carcaixent", "mic": "🎤 PREME PER A PARLAR", "sys": "Eres Tomás, guia del museu de Carcaixent."},
-    "en": {"titulo": "🏛️ Carcaixent Museum", "mic": "🎤 TAP TO SPEAK", "sys": "You are Tomás, museum guide."}
+    "es": {"mic": "🎤 PULSE PARA HABLAR", "sys": "Eres Tomás, guía experto del Museu de Carcaixent. Responde de forma amable y breve."},
+    "ca": {"mic": "🎤 PREME PER A PARLAR", "sys": "Eres Tomás, guia expert del Museu de Carcaixent. Respon de forma amable i breu."},
+    "en": {"mic": "🎤 TAP TO SPEAK", "sys": "You are Tomás, expert guide of the Museu de Carcaixent. Answer kindly and briefly."}
 }
 
-st.markdown(f"<h1 style='text-align: center; color: #1B4F72;'>{config[st.session_state.idioma]['titulo']}</h1>", unsafe_allow_html=True)
+# Chat
+for chat in st.session_state.historial:
+    with st.chat_message(chat["role"], avatar="🏛️" if chat["role"]=="assistant" else "👤"):
+        st.write(chat["content"])
 
-# --- 4. BOTONES ---
-c1, c2, c3 = st.columns(3)
-with c1: 
-    if st.button("CASTELLANO"): st.session_state.idioma = "es"; st.session_state.historial = []; st.rerun()
-with c2: 
-    if st.button("VALENCIÀ"): st.session_state.idioma = "ca"; st.session_state.historial = []; st.rerun()
-with c3: 
-    if st.button("ENGLISH"): st.session_state.idioma = "en"; st.session_state.historial = []; st.rerun()
-
-# --- 5. CHAT Y LÓGICA ---
-for m in st.session_state.historial:
-    st.chat_message(m["role"]).write(m["content"])
-
+# --- MICRO ---
 st.write("---")
-audio = mic_recorder(start_prompt=config[st.session_state.idioma]["mic"], stop_prompt="🛑 ESCUCHANDO...", key=f"mic_{st.session_state.audio_key}")
+_, col_mic, _ = st.columns([1,2,1])
+with col_mic:
+    audio = mic_recorder(start_prompt=config[idioma]["mic"], stop_prompt="🛑 ESCUCHANDO...", key='recorder')
 
 if audio:
     with st.spinner("Tomás está pensando..."):
-        # Transcribir
-        trans = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio['bytes']), language=st.session_state.idioma)
-        
-        # Responder
-        res = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": config[st.session_state.idioma]["sys"]}] + st.session_state.historial + [{"role": "user", "content": trans.text}]
-        )
-        respuesta = res.choices[0].message.content
-        
-        st.session_state.historial.append({"role": "user", "content": trans.text})
-        st.session_state.historial.append({"role": "assistant", "content": respuesta})
-        st.session_state.audio_key += 1
-        st.rerun()
+        # 1. Transcripción
+        transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio['bytes']), language=idioma)
+        user_text = transcript.text.strip()
 
-# Reproducir audio automáticamente
-if st.session_state.historial and st.session_state.historial[-1]["role"] == "assistant":
-    audio_res = client.audio.speech.create(model="tts-1", voice="onyx", input=st.session_state.historial[-1]["content"])
-    st.audio(audio_res.content, format="audio/mpeg", autoplay=True)
+        if user_text:
+            # 2. Contexto
+            contexto = ""
+            if os.path.exists("info_museo.txt"):
+                with open("info_museo.txt", "r", encoding="utf-8") as f: contexto = f.read()
+
+            mensajes = [{"role": "system", "content": f"{config[idioma]['sys']} \n\n INFO: {contexto}"}]
+            for m in st.session_state.historial[-5:]: mensajes.append(m)
+            mensajes.append({"role": "user", "content": user_text})
+
+            # 3. Respuesta de Texto
+            response = client.chat.completions.create(model="gpt-4o-mini", messages=mensajes)
+            respuesta = response.choices[0].message.content
+            
+            # 4. Voz
+            audio_ev = client.audio.speech.create(model="tts-1", voice="onyx", input=respuesta)
+            
+            # Guardar y mostrar
+            st.session_state.historial.append({"role": "user", "content": user_text})
+            st.session_state.historial.append({"role": "assistant", "content": respuesta})
+            
+            # Reproducir Audio
+            st.audio(audio_ev.content, format="audio/mpeg", autoplay=True)
+            st.rerun()
