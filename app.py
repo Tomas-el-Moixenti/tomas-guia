@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 # En la nube, configuraremos la API KEY en los "Secrets" de la plataforma
 # Si estás en local, la leerá de tus variables de entorno.
-api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = "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"
 
 if not api_key:
     st.error("Por favor, configura la OPENAI_API_KEY en los Secrets.")
